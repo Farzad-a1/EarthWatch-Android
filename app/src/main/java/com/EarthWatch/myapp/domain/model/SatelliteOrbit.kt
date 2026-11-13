@@ -46,3 +46,10 @@ data class SatellitePass(
     val maximumElevationDeg: Double,
     val azimuthAtMaximumDeg: Double,
 )
+
+data class SavedPlace(
+    val id: String,
+    val name: String,
+    val latitudeDeg: Double,
+    val longitudeDeg: Double,
+)

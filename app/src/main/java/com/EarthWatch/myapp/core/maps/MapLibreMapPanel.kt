@@ -28,11 +28,15 @@ import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.style.layers.CircleLayer
 import org.maplibre.android.style.layers.LineLayer
+import org.maplibre.android.style.layers.RasterLayer
+import org.maplibre.android.style.layers.PropertyFactory.rasterOpacity
 import org.maplibre.android.style.layers.PropertyFactory.circleColor
 import org.maplibre.android.style.layers.PropertyFactory.circleRadius
 import org.maplibre.android.style.layers.PropertyFactory.circleStrokeColor
 import org.maplibre.android.style.layers.PropertyFactory.circleStrokeWidth
 import org.maplibre.android.style.sources.GeoJsonSource
+import org.maplibre.android.style.sources.RasterSource
+import org.maplibre.android.style.sources.TileSet
 
 data class MapLocation(val name: String, val latitude: Double, val longitude: Double)
 
@@ -45,13 +49,15 @@ fun MapLibreMapPanel(
     onStatus: (loading: Boolean, error: String?) -> Unit,
     satellitePositions: List<GroundPosition> = emptyList(),
     groundTracks: List<GroundTrack> = emptyList(),
+    rasterTileTemplate: String? = null,
+    initialZoom: Double = 2.4,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val currentOnMapTap = rememberUpdatedState(onMapTap)
     val currentOnStatus = rememberUpdatedState(onStatus)
-    val mapView = remember(context, retryKey) { MapView(context).apply { onCreate(Bundle()) } }
+    val mapView = remember(context, retryKey, rasterTileTemplate) { MapView(context).apply { onCreate(Bundle()) } }
     val mapState = remember { mutableStateOf<MapLibreMap?>(null) }
     val markerSource = remember { mutableStateOf<GeoJsonSource?>(null) }
     val satelliteSource = remember { mutableStateOf<GeoJsonSource?>(null) }
@@ -68,6 +74,15 @@ fun MapLibreMapPanel(
                 true
             }
             map.setStyle(BuildConfig.EARTHWATCH_MAP_STYLE_URL) { style ->
+                rasterTileTemplate?.let { tileTemplate ->
+                    val rasterSource = RasterSource(
+                        "earthwatch-nasa-imagery-source",
+                        TileSet("2.2.0", tileTemplate).apply { attribution = "NASA Global Imagery Browse Services (GIBS)" },
+                        256,
+                    )
+                    style.addSource(rasterSource)
+                    style.addLayer(RasterLayer("earthwatch-nasa-imagery", "earthwatch-nasa-imagery-source").withProperties(rasterOpacity(0.96f)))
+                }
                 val source = GeoJsonSource(
                     "earthwatch-selected-location-source",
                     Feature.fromGeometry(Point.fromLngLat(location.longitude, location.latitude)),
@@ -102,7 +117,7 @@ fun MapLibreMapPanel(
                 map.moveCamera(
                     CameraUpdateFactory.newLatLngZoom(
                         LatLng(location.latitude, location.longitude),
-                        2.4,
+                        initialZoom,
                     ),
                 )
                 currentOnStatus.value(false, null)

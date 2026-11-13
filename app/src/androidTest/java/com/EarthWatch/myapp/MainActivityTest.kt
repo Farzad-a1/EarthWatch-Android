@@ -2,6 +2,7 @@ package com.EarthWatch.myapp
 
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import org.junit.Rule
@@ -26,5 +27,9 @@ class MainActivityTest {
         compose.onNodeWithText("Passes").performClick()
         compose.onNodeWithText("Alert me").assertIsDisplayed()
         compose.onNodeWithText("elevation above 10°", substring = true).assertIsDisplayed()
+        compose.onNodeWithText("Imagery").performClick()
+        compose.onNodeWithText("NASA GIBS · MODIS Corrected Reflectance · Daily composite").assertIsDisplayed()
+        compose.onNodeWithText("Saved").performClick()
+        compose.onNodeWithContentDescription("Add location").assertIsDisplayed()
     }
 }

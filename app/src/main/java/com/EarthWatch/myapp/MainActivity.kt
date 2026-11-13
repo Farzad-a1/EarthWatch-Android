@@ -45,13 +45,17 @@ import com.EarthWatch.myapp.core.maps.MapLocation
 import com.EarthWatch.myapp.domain.model.GroundPosition
 import com.EarthWatch.myapp.domain.model.GroundTrack
 import com.EarthWatch.myapp.domain.model.SatelliteOrbit
+import com.EarthWatch.myapp.domain.model.SavedPlace
 import com.EarthWatch.myapp.feature.satellites.SatelliteUiState
 import com.EarthWatch.myapp.feature.satellites.SatelliteViewModel
 import com.EarthWatch.myapp.feature.passes.PassUiState
 import com.EarthWatch.myapp.feature.passes.PassViewModel
+import com.EarthWatch.myapp.feature.saved.SavedLocationsViewModel
 import java.time.Instant
 import java.time.Duration
+import java.time.LocalDate
 import java.time.ZoneId
+import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
@@ -79,7 +83,9 @@ class MainActivity : ComponentActivity() {
 private fun EarthWatchApp() {
     val nav = rememberNavController()
     val satelliteViewModel: SatelliteViewModel = viewModel()
+    val passViewModel: PassViewModel = viewModel()
     val satelliteState by satelliteViewModel.state.collectAsStateWithLifecycle()
+    val observingState by passViewModel.state.collectAsStateWithLifecycle()
     MaterialTheme(colorScheme = lightColorScheme(primary = Blue, background = Ice, surface = Color.White, onPrimary = Color.White, onBackground = Navy, onSurface = Navy)) {
         Surface(Modifier.fillMaxSize(), color = Ice) {
             NavHost(navController = nav, startDestination = "welcome") {
@@ -87,13 +93,21 @@ private fun EarthWatchApp() {
                 composable("explore") { MainShell(nav, "explore") { ExploreScreen(nav, satelliteState.orbits, satelliteState.positions, satelliteState.tracks, satelliteState.fetchedAtMillis) } }
                 composable("satellites") { MainShell(nav, "satellites") { SatellitesScreen(nav, satelliteState, satelliteViewModel::refreshCatalog) } }
                 composable("passes") {
-                    val passViewModel: PassViewModel = viewModel()
                     val passState by passViewModel.state.collectAsStateWithLifecycle()
                     LaunchedEffect(satelliteState.orbits) { passViewModel.updateCatalog(satelliteState.orbits) }
                     MainShell(nav, "passes") { PassesScreen(passState, passViewModel, satelliteState.fetchedAtMillis) }
                 }
-                composable("imagery") { MainShell(nav, "imagery") { ImageryScreen() } }
-                composable("saved") { MainShell(nav, "saved") { SavedScreen() } }
+                composable("imagery") { MainShell(nav, "imagery") { ImageryScreen(observingState.location) } }
+                composable("saved") {
+                    val savedViewModel: SavedLocationsViewModel = viewModel()
+                    val savedState by savedViewModel.state.collectAsStateWithLifecycle()
+                    MainShell(nav, "saved") {
+                        SavedScreen(savedState, savedViewModel) { place ->
+                            passViewModel.updateLocation(com.EarthWatch.myapp.domain.model.ObservingLocation(place.name, place.latitudeDeg, place.longitudeDeg))
+                            nav.navigate("passes") { launchSingleTop = true }
+                        }
+                    }
+                }
                 composable("settings") { MainShell(nav, "settings", showBottom = false) { SettingsScreen() } }
                 composable("globe") { MainShell(nav, "explore", showBottom = false) { GlobeScreen(nav) } }
                 composable("detail/{norad}") { entry ->
@@ -410,47 +424,103 @@ private fun formatLocation(latitude: Double, longitude: Double): String =
     "${"%.4f".format(Locale.US, kotlin.math.abs(latitude))}° ${if (latitude >= 0) "N" else "S"}, ${"%.4f".format(Locale.US, kotlin.math.abs(longitude))}° ${if (longitude >= 0) "E" else "W"}"
 
 @Composable
-private fun ImageryScreen() {
+private fun ImageryScreen(location: com.EarthWatch.myapp.domain.model.ObservingLocation) {
+    var sensor by remember { mutableStateOf("Terra") }
+    val latestAvailableDate = remember { LocalDate.now(ZoneOffset.UTC).minusDays(2) }
+    var selectedDate by remember { mutableStateOf(latestAvailableDate) }
+    val layer = if (sensor == "Terra") "MODIS_Terra_CorrectedReflectance_TrueColor" else "MODIS_Aqua_CorrectedReflectance_TrueColor"
+    val tileTemplate = "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/$layer/default/$selectedDate/GoogleMapsCompatible_Level9/{z}/{y}/{x}.jpg"
     Column(Modifier.fillMaxSize()) {
-        TopBar("Satellite Imagery", trailing = { IconButton(onClick = {}) { Icon(Icons.Default.MoreHoriz, "More options", tint = Navy) } })
-        Card(Modifier.fillMaxWidth().padding(14.dp), shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = Color.White), border = BorderStroke(1.dp, BorderBlue)) {
-            Column {
-                AerialPreview(Modifier.fillMaxWidth().height(280.dp).padding(8.dp).clip(RoundedCornerShape(16.dp)))
-                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text("Imagery preview", fontWeight = FontWeight.Bold); Text("No live image source connected", fontSize = 12.sp, color = Muted) }; Text("Source unavailable", color = Muted, fontSize = 11.sp) }
+        TopBar("Satellite Imagery")
+        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 14.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf("Terra", "Aqua").forEach { name ->
+                FilterChip(selected = sensor == name, onClick = { sensor = name }, label = { Text("MODIS $name") }, shape = RoundedCornerShape(24.dp), colors = FilterChipDefaults.filterChipColors(selectedContainerColor = Blue, selectedLabelColor = Color.White, containerColor = PaleBlue, labelColor = Navy), border = null)
             }
         }
-        InfoBanner("Imagery controls appear when a public image provider is connected. This preview is illustrative, not a satellite acquisition.")
-        Row(Modifier.padding(14.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) { listOf("Download", "Compare", "Info").forEach { label -> OutlinedButton(onClick = {}, enabled = false, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp)) { Text(label, fontSize = 11.sp) } } }
+        Box(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp).clip(RoundedCornerShape(20.dp))) {
+            MapLibreMapPanel(
+                location = MapLocation(location.name, location.latitudeDeg, location.longitudeDeg),
+                retryKey = 0,
+                recenterKey = 0,
+                onMapTap = { _, _ -> },
+                onStatus = { _, _ -> },
+                rasterTileTemplate = tileTemplate,
+                initialZoom = 4.0,
+                modifier = Modifier.fillMaxSize(),
+            )
+            Surface(Modifier.align(Alignment.BottomStart).padding(10.dp), shape = RoundedCornerShape(10.dp), color = Color.White.copy(alpha = .94f)) {
+                Text("NASA GIBS · MODIS Corrected Reflectance · Daily composite", Modifier.padding(horizontal = 10.dp, vertical = 7.dp), fontSize = 10.sp, color = Muted)
+            }
+        }
+        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
+            IconButton(onClick = { selectedDate = selectedDate.minusDays(1) }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Previous imagery date", tint = Navy) }
+            Text(selectedDate.format(DateTimeFormatter.ofPattern("d MMM yyyy", Locale.getDefault())), Modifier.padding(horizontal = 12.dp), fontWeight = FontWeight.SemiBold, color = Navy)
+            IconButton(onClick = { if (selectedDate < latestAvailableDate) selectedDate = selectedDate.plusDays(1) }, enabled = selectedDate < latestAvailableDate) { Icon(Icons.Default.ChevronRight, "Next imagery date", tint = if (selectedDate < latestAvailableDate) Blue else Muted) }
+        }
+        Text("Browse imagery near ${location.name}. NASA imagery is a visual composite and may be a day or more behind current conditions.", Modifier.padding(horizontal = 16.dp, vertical = 6.dp), color = Muted, fontSize = 11.sp)
     }
 }
 
 @Composable
-private fun AerialPreview(modifier: Modifier) {
-    Canvas(modifier.background(Brush.linearGradient(listOf(Color(0xFF637E54), Color(0xFFB59A65), Color(0xFF415B50))))) {
-        for (i in 0..10) {
-            val x = size.width * i / 10f
-            drawLine(Color(0xFFDFD0A4).copy(alpha = .65f), Offset(x, 0f), Offset(x + size.width * .16f, size.height), strokeWidth = 10.dp.toPx())
-        }
-        for (i in 0..7) {
-            val y = size.height * i / 7f
-            drawLine(Color(0xFF314F42).copy(alpha = .6f), Offset(0f, y), Offset(size.width, y - size.height * .12f), strokeWidth = 14.dp.toPx())
-        }
-        drawPath(Path().apply { moveTo(size.width*.08f,size.height*.55f); cubicTo(size.width*.3f,size.height*.44f,size.width*.48f,size.height*.68f,size.width*.72f,size.height*.48f); cubicTo(size.width*.84f,size.height*.4f,size.width*.89f,size.height*.5f,size.width,size.height*.42f) }, Color(0xFF8EB7C4), style = Stroke(12.dp.toPx()))
-    }
-}
-
-@Composable
-private fun SavedScreen() {
-    var add by remember { mutableStateOf(false) }
-    var place by remember { mutableStateOf("") }
-    var locations by remember { mutableStateOf(listOf("Tehran, Iran" to "35.6892° N, 51.3890° E", "Isfahan, Iran" to "32.6546° N, 51.6680° E", "Shiraz, Iran" to "29.5918° N, 52.5837° E", "Tabriz, Iran" to "38.0962° N, 46.2738° E")) }
+private fun SavedScreen(state: com.EarthWatch.myapp.feature.saved.SavedLocationsState, viewModel: SavedLocationsViewModel, onUseLocation: (SavedPlace) -> Unit) {
+    var showAdd by remember { mutableStateOf(false) }
+    var name by remember { mutableStateOf("") }
+    var latitude by remember { mutableStateOf("") }
+    var longitude by remember { mutableStateOf("") }
+    var validationError by remember { mutableStateOf<String?>(null) }
     Column(Modifier.fillMaxSize()) {
-        TopBar("Saved Locations", trailing = { IconButton(onClick = { add = true }) { Icon(Icons.Default.Add, "Add location", tint = Navy) } })
-        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(locations) { (name, coords) -> Card(shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = Color.White), border = BorderStroke(1.dp, BorderBlue)) { Row(Modifier.fillMaxWidth().clickable { }.padding(10.dp), verticalAlignment = Alignment.CenterVertically) { Box(Modifier.size(52.dp).clip(RoundedCornerShape(12.dp)).background(Brush.verticalGradient(listOf(Color(0xFF85C4EA), Color(0xFF668752)))), Alignment.Center) { Icon(Icons.Default.Terrain, null, tint = Color.White) }; Spacer(Modifier.width(12.dp)); Column(Modifier.weight(1f)) { Text(name, fontWeight = FontWeight.Bold); Text(coords, fontSize = 11.sp, color = Muted) }; IconButton(onClick = { locations = locations.filterNot { it.first == name } }) { Icon(Icons.Default.Star, "Remove $name", tint = Orange) } } } }
+        TopBar("Saved Locations", trailing = { IconButton(onClick = { showAdd = true }) { Icon(Icons.Default.Add, "Add location", tint = Navy) } })
+        state.errorMessage?.let { InfoBanner(it) }
+        if (state.loading && state.locations.isEmpty()) {
+            Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+        } else if (state.locations.isEmpty()) {
+            Column(Modifier.fillMaxWidth().weight(1f), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
+                Icon(Icons.Default.LocationOn, null, tint = Blue, modifier = Modifier.size(38.dp))
+                Text("No saved locations yet", color = Navy, fontWeight = FontWeight.SemiBold)
+                Text("Add coordinates to use them for pass predictions.", color = Muted, fontSize = 12.sp)
+                TextButton(onClick = { showAdd = true }) { Text("Add a location") }
+            }
+        } else {
+            LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(state.locations, key = SavedPlace::id) { place ->
+                    Card(shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = Color.White), border = BorderStroke(1.dp, BorderBlue)) {
+                        Row(Modifier.fillMaxWidth().padding(start = 12.dp, end = 4.dp, top = 9.dp, bottom = 9.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Box(Modifier.size(46.dp).clip(RoundedCornerShape(12.dp)).background(PaleBlue), Alignment.Center) { Icon(Icons.Default.LocationOn, null, tint = Blue) }
+                            Spacer(Modifier.width(10.dp))
+                            Column(Modifier.weight(1f)) { Text(place.name, fontWeight = FontWeight.Bold); Text(formatLocation(place.latitudeDeg, place.longitudeDeg), fontSize = 11.sp, color = Muted) }
+                            TextButton(onClick = { onUseLocation(place) }) { Text("Use") }
+                            IconButton(onClick = { viewModel.delete(place.id) }) { Icon(Icons.Default.DeleteOutline, "Remove ${place.name}", tint = Muted) }
+                        }
+                    }
+                }
+            }
         }
     }
-    if (add) AlertDialog(onDismissRequest = { add = false }, title = { Text("Add location") }, text = { OutlinedTextField(place, { place = it }, label = { Text("Location name or coordinates") }, singleLine = true) }, confirmButton = { TextButton(onClick = { if (place.isNotBlank()) locations = listOf(place to "Coordinates to be added") + locations; place = ""; add = false }) { Text("Add") } }, dismissButton = { TextButton(onClick = { add = false }) { Text("Cancel") } })
+    if (showAdd) AlertDialog(
+        onDismissRequest = { showAdd = false; validationError = null },
+        title = { Text("Add a saved location") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(name, { name = it; validationError = null }, label = { Text("Name") }, singleLine = true)
+                OutlinedTextField(latitude, { latitude = it; validationError = null }, label = { Text("Latitude (−90 to 90)") }, singleLine = true)
+                OutlinedTextField(longitude, { longitude = it; validationError = null }, label = { Text("Longitude (−180 to 180)") }, singleLine = true)
+                validationError?.let { Text(it, color = Color(0xFFB42318), fontSize = 12.sp) }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                val lat = latitude.trim().toDoubleOrNull()
+                val lon = longitude.trim().toDoubleOrNull()
+                if (name.isBlank() || lat == null || lon == null || lat !in -90.0..90.0 || lon !in -180.0..180.0) {
+                    validationError = "Enter a name and valid latitude and longitude."
+                } else {
+                    viewModel.save(name, lat, lon)
+                    name = ""; latitude = ""; longitude = ""; validationError = null; showAdd = false
+                }
+            }) { Text("Save") }
+        },
+        dismissButton = { TextButton(onClick = { showAdd = false; validationError = null }) { Text("Cancel") } },
+    )
 }
 
 @Composable
