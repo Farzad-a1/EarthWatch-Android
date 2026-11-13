@@ -27,6 +27,8 @@ import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.*
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -34,6 +36,14 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.EarthWatch.myapp.core.maps.MapLibreMapPanel
 import com.EarthWatch.myapp.core.maps.MapLocation
+import com.EarthWatch.myapp.domain.model.GroundPosition
+import com.EarthWatch.myapp.domain.model.GroundTrack
+import com.EarthWatch.myapp.domain.model.SatelliteOrbit
+import com.EarthWatch.myapp.feature.satellites.SatelliteUiState
+import com.EarthWatch.myapp.feature.satellites.SatelliteViewModel
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 private val Ice = Color(0xFFF4F9FF)
@@ -44,15 +54,6 @@ private val Muted = Color(0xFF64748B)
 private val PaleBlue = Color(0xFFEAF3FF)
 private val BorderBlue = Color(0xFFD7E5F5)
 private val Success = Color(0xFF22C55E)
-
-private data class Satellite(val name: String, val norad: String, val altitude: String, val kind: String, val glyph: String)
-private val sampleSatellites = listOf(
-    Satellite("Sentinel-1A", "39634", "693 km", "Earth Observation", "🛰️"),
-    Satellite("Sentinel-2A", "40697", "786 km", "Earth Observation", "🛰️"),
-    Satellite("Landsat 9", "49260", "705 km", "Earth Observation", "🛰️"),
-    Satellite("NOAA 20", "43013", "824 km", "Weather", "🛰️"),
-    Satellite("ISS (ZARYA)", "25544", "408 km", "Communication", "🛰️")
-)
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -68,20 +69,23 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun EarthWatchApp() {
     val nav = rememberNavController()
+    val satelliteViewModel: SatelliteViewModel = viewModel()
+    val satelliteState by satelliteViewModel.state.collectAsStateWithLifecycle()
     MaterialTheme(colorScheme = lightColorScheme(primary = Blue, background = Ice, surface = Color.White, onPrimary = Color.White, onBackground = Navy, onSurface = Navy)) {
         Surface(Modifier.fillMaxSize(), color = Ice) {
             NavHost(navController = nav, startDestination = "welcome") {
                 composable("welcome") { WelcomeScreen { nav.navigate("explore") { popUpTo("welcome") { inclusive = true } } } }
-                composable("explore") { MainShell(nav, "explore") { ExploreScreen(nav) } }
-                composable("satellites") { MainShell(nav, "satellites") { SatellitesScreen(nav) } }
+                composable("explore") { MainShell(nav, "explore") { ExploreScreen(nav, satelliteState.orbits, satelliteState.positions, satelliteState.tracks, satelliteState.fetchedAtMillis) } }
+                composable("satellites") { MainShell(nav, "satellites") { SatellitesScreen(nav, satelliteState, satelliteViewModel::refreshCatalog) } }
                 composable("passes") { MainShell(nav, "passes") { PassesScreen() } }
                 composable("imagery") { MainShell(nav, "imagery") { ImageryScreen() } }
                 composable("saved") { MainShell(nav, "saved") { SavedScreen() } }
                 composable("settings") { MainShell(nav, "settings", showBottom = false) { SettingsScreen() } }
                 composable("globe") { MainShell(nav, "explore", showBottom = false) { GlobeScreen(nav) } }
-                composable("detail/{name}") { entry ->
-                    val satellite = sampleSatellites.firstOrNull { it.name == entry.arguments?.getString("name") } ?: sampleSatellites.first()
-                    MainShell(nav, "satellites", showBottom = false) { SatelliteDetailScreen(satellite, nav) }
+                composable("detail/{norad}") { entry ->
+                    val norad = entry.arguments?.getString("norad")?.toLongOrNull()
+                    val satellite = satelliteState.orbits.firstOrNull { it.noradId == norad }
+                    MainShell(nav, "satellites", showBottom = false) { SatelliteDetailScreen(satellite, satelliteState.positions.firstOrNull { it.noradId == norad }, satelliteState.fetchedAtMillis, nav) }
                 }
             }
         }
@@ -166,7 +170,7 @@ private fun TopBar(title: String, onBack: (() -> Unit)? = null, trailing: @Compo
 }
 
 @Composable
-private fun ExploreScreen(nav: NavHostController) {
+private fun ExploreScreen(nav: NavHostController, orbits: List<SatelliteOrbit>, positions: List<GroundPosition>, tracks: List<GroundTrack>, fetchedAtMillis: Long?) {
     var globe by remember { mutableStateOf(false) }
     var location by remember { mutableStateOf(MapLocation("Tehran, Iran", 35.6892, 51.3890)) }
     var showLocationDialog by remember { mutableStateOf(false) }
@@ -190,6 +194,8 @@ private fun ExploreScreen(nav: NavHostController) {
                 recenterKey = recenterKey,
                 onMapTap = { latitude, longitude -> location = MapLocation("Selected location", latitude, longitude) },
                 onStatus = { loading, error -> mapLoading = loading; mapError = error },
+                satellitePositions = positions,
+                groundTracks = tracks,
                 modifier = Modifier.fillMaxSize(),
             )
             Row(Modifier.align(Alignment.TopStart).padding(12.dp).clip(CircleShape).background(Color.White.copy(alpha = .95f)).clickable { showLocationDialog = true }.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Default.LocationOn, null, tint = Blue, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(5.dp)); Text(location.name, color = Navy, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1); Spacer(Modifier.width(8.dp)); Text(String.format(Locale.US, "%.2f, %.2f", location.latitude, location.longitude), color = Muted, fontSize = 10.sp, maxLines = 1) }
@@ -207,7 +213,7 @@ private fun ExploreScreen(nav: NavHostController) {
         }
     }
     if (showLocationDialog) CoordinateEntryDialog(location, onDismiss = { showLocationDialog = false }) { updated -> location = updated; showLocationDialog = false }
-    if (showLayersInfo) AlertDialog(onDismissRequest = { showLayersInfo = false }, title = { Text("Map layers") }, text = { Text("The interactive base map is ready. Satellite positions and orbital tracks will appear when real orbit data is added in Milestone 3.") }, confirmButton = { TextButton(onClick = { showLayersInfo = false }) { Text("OK") } })
+    if (showLayersInfo) AlertDialog(onDismissRequest = { showLayersInfo = false }, title = { Text("Map layers") }, text = { Text("The map shows propagated positions for ${positions.size} satellites and ${tracks.size} orbital ground tracks when catalog data is available. Catalog data: ${fetchedAtMillis?.let(::formatFetchedAt) ?: "not yet loaded"}.") }, confirmButton = { TextButton(onClick = { showLayersInfo = false }) { Text("OK") } })
 }
 
 @Composable
@@ -266,31 +272,51 @@ private fun WorldMapArt(modifier: Modifier) {
 }
 
 @Composable
-private fun SatellitesScreen(nav: NavHostController) {
+private fun SatellitesScreen(nav: NavHostController, state: SatelliteUiState, onRefresh: () -> Unit) {
     var category by remember { mutableStateOf("All") }
     var query by remember { mutableStateOf("") }
     val categories = listOf("All", "Earth Obs.", "Weather", "Comm.")
-    val filtered = sampleSatellites.filter { (category == "All" || it.kind.startsWith(category.removeSuffix("."))) && it.name.contains(query, true) }
+    val filtered = state.orbits.filter { orbit ->
+        val categoryMatches = when (category) {
+            "Earth Obs." -> orbit.category == "Earth Observation"
+            "Weather" -> orbit.category == "Weather"
+            "Comm." -> orbit.category == "Communication"
+            else -> true
+        }
+        categoryMatches && (orbit.name.contains(query, true) || orbit.noradId.toString().contains(query))
+    }
     Column(Modifier.fillMaxSize()) {
         TopBar("Satellites", trailing = { IconButton(onClick = { query = if (query.isEmpty()) "Sentinel" else "" }) { Icon(Icons.Default.Search, "Search", tint = Navy) }; IconButton(onClick = { category = if (category == "All") "Weather" else "All" }) { Icon(Icons.Default.FilterList, "Filter", tint = Navy) } })
         if (query.isNotEmpty()) OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth().padding(horizontal = 16.dp), placeholder = { Text("Search satellites") }, singleLine = true, shape = RoundedCornerShape(14.dp))
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 5.dp), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
             categories.forEach { label -> FilterChip(selected = category == label, onClick = { category = label }, label = { Text(label) }, shape = RoundedCornerShape(24.dp), colors = FilterChipDefaults.filterChipColors(selectedContainerColor = Blue, selectedLabelColor = Color.White, containerColor = PaleBlue, labelColor = Navy), border = null) }
         }
-        Text("Public catalog preview · sample records", Modifier.padding(start = 16.dp, bottom = 6.dp), fontSize = 11.sp, color = Muted)
+        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("${state.orbits.size} CelesTrak objects · ${state.fetchedAtMillis?.let(::formatFetchedAt) ?: "waiting for catalog"}", Modifier.weight(1f), fontSize = 11.sp, color = Muted)
+            IconButton(onClick = onRefresh, enabled = !state.loading) { Icon(Icons.Default.Refresh, "Refresh catalog", tint = Blue) }
+        }
+        state.errorMessage?.let { Text(it, Modifier.padding(horizontal = 16.dp, vertical = 4.dp), color = Color(0xFF9A5B00), fontSize = 11.sp) }
+        if (state.loading && state.orbits.isEmpty()) {
+            Box(Modifier.fillMaxWidth().padding(28.dp), contentAlignment = Alignment.Center) { Column(horizontalAlignment = Alignment.CenterHorizontally) { CircularProgressIndicator(); Text("Loading CelesTrak catalog…", Modifier.padding(top = 12.dp), color = Muted) } }
+        } else if (filtered.isEmpty()) {
+            Column(Modifier.fillMaxWidth().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(if (state.orbits.isEmpty()) "Satellite data is not available yet." else "No satellites match this search.", color = Muted)
+                if (state.orbits.isEmpty()) TextButton(onClick = onRefresh) { Text("Try again") }
+            }
+        }
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
-            items(filtered) { item -> SatelliteCard(item) { nav.navigate("detail/${item.name}") } }
+            items(filtered, key = { it.noradId }) { item -> SatelliteCard(item, state.positions.firstOrNull { it.noradId == item.noradId }) { nav.navigate("detail/${item.noradId}") } }
         }
     }
 }
 
 @Composable
-private fun SatelliteCard(sat: Satellite, onClick: () -> Unit) {
+private fun SatelliteCard(sat: SatelliteOrbit, position: GroundPosition?, onClick: () -> Unit) {
     Card(onClick = onClick, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = Color.White), border = BorderStroke(1.dp, BorderBlue), elevation = CardDefaults.cardElevation(2.dp)) {
         Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(58.dp).clip(CircleShape).background(PaleBlue), Alignment.Center) { Text(sat.glyph, fontSize = 33.sp) }
+            Box(Modifier.size(58.dp).clip(CircleShape).background(PaleBlue), Alignment.Center) { Text("🛰️", fontSize = 33.sp) }
             Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f)) { Text(sat.name, fontWeight = FontWeight.Bold, color = Navy); Text("NORAD: ${sat.norad}", fontSize = 12.sp, color = Navy); Text("Altitude: ${sat.altitude}", fontSize = 12.sp, color = Navy) }
+            Column(Modifier.weight(1f)) { Text(sat.name, fontWeight = FontWeight.Bold, color = Navy, maxLines = 1); Text("NORAD: ${sat.noradId}", fontSize = 12.sp, color = Navy); Text(position?.let { "Altitude: ${"%.0f".format(Locale.US, it.altitudeKm)} km" } ?: "Altitude: calculating…", fontSize = 12.sp, color = Navy) }
             Icon(Icons.Default.ChevronRight, null, tint = Navy)
         }
     }
@@ -381,24 +407,42 @@ private fun SettingRow(icon: androidx.compose.ui.graphics.vector.ImageVector, ti
 }
 
 @Composable
-private fun SatelliteDetailScreen(sat: Satellite, nav: NavHostController) {
+private fun SatelliteDetailScreen(sat: SatelliteOrbit?, position: GroundPosition?, fetchedAtMillis: Long?, nav: NavHostController) {
     Column(Modifier.fillMaxSize()) {
         TopBar("Satellite Details", onBack = { nav.popBackStack() })
+        if (sat == null) {
+            InfoBanner("This satellite is not in the currently loaded catalog. Return to the list and select an available object.")
+            return@Column
+        }
         Card(Modifier.fillMaxWidth().padding(12.dp), shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = Color.White), border = BorderStroke(1.dp, BorderBlue)) {
             Row(Modifier.padding(16.dp), verticalAlignment = Alignment.Top) {
-                Box(Modifier.size(92.dp).clip(CircleShape).background(PaleBlue), Alignment.Center) { Text(sat.glyph, fontSize = 54.sp) }
+                Box(Modifier.size(92.dp).clip(CircleShape).background(PaleBlue), Alignment.Center) { Text("🛰️", fontSize = 54.sp) }
                 Spacer(Modifier.width(14.dp))
                 Column(Modifier.weight(1f)) {
                     Text(sat.name, fontWeight = FontWeight.Bold, fontSize = 19.sp)
-                    Row(verticalAlignment = Alignment.CenterVertically) { Box(Modifier.size(8.dp).clip(CircleShape).background(Success)); Spacer(Modifier.width(6.dp)); Text("Catalog preview", color = Success, fontSize = 12.sp) }
+                    Row(verticalAlignment = Alignment.CenterVertically) { Box(Modifier.size(8.dp).clip(CircleShape).background(Success)); Spacer(Modifier.width(6.dp)); Text("Orbit elements loaded", color = Success, fontSize = 12.sp) }
                     Spacer(Modifier.height(12.dp))
-                    listOf("NORAD ID" to sat.norad, "Type" to sat.kind, "Altitude" to sat.altitude, "Orbit details" to "Awaiting orbital data").forEach { (label, value) -> Text(label, fontSize = 11.sp, color = Muted); Text(value, fontSize = 13.sp, fontWeight = FontWeight.SemiBold); HorizontalDivider(Modifier.padding(vertical = 5.dp), color = BorderBlue) }
+                    val period = 1440.0 / sat.meanMotionRevPerDay
+                    listOf(
+                        "NORAD ID" to sat.noradId.toString(),
+                        "Object ID" to (sat.internationalDesignator ?: "Not supplied"),
+                        "Type" to sat.category,
+                        "Altitude" to (position?.let { "${"%.1f".format(Locale.US, it.altitudeKm)} km (propagated)" } ?: "Calculating current position"),
+                        "Inclination" to "${"%.2f".format(Locale.US, sat.inclinationDeg)}°",
+                        "Orbital period" to "${"%.2f".format(Locale.US, period)} min",
+                        "Epoch" to sat.epoch,
+                        "Elements retrieved" to (fetchedAtMillis?.let(::formatFetchedAt) ?: "Unknown"),
+                    ).forEach { (label, value) -> Text(label, fontSize = 11.sp, color = Muted); Text(value, fontSize = 13.sp, fontWeight = FontWeight.SemiBold); HorizontalDivider(Modifier.padding(vertical = 5.dp), color = BorderBlue) }
                 }
             }
         }
-        InfoBanner("Catalog values are sample records for layout review. Live TLE and SGP4 values are added in Milestone 3.")
+        position?.let { InfoBanner("Current propagated sub-satellite point: ${"%.3f".format(Locale.US, it.latitudeDeg)}°, ${"%.3f".format(Locale.US, it.longitudeDeg)}°. SGP4 with CelesTrak OMM elements.") }
     }
 }
+
+private fun formatFetchedAt(epochMillis: Long): String = runCatching {
+    DateTimeFormatter.ofPattern("d MMM yyyy, HH:mm 'UTC'", Locale.US).withZone(ZoneId.of("UTC")).format(Instant.ofEpochMilli(epochMillis))
+}.getOrDefault("retrieved")
 
 @Composable
 private fun GlobeScreen(nav: NavHostController) {

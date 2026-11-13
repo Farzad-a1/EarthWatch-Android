@@ -18,5 +18,10 @@ class MainActivityTest {
         compose.onNodeWithText("Get Started").performClick()
         compose.onNodeWithText("Explore").assertIsDisplayed()
         compose.onNodeWithText("Satellites").assertIsDisplayed()
+        compose.onNodeWithText("Satellites").performClick()
+        compose.onNodeWithText("Earth Obs.").assertIsDisplayed()
+        compose.onNodeWithText("Weather").assertIsDisplayed()
+        compose.onNodeWithText("Comm.").assertIsDisplayed()
+        compose.onNodeWithText("CelesTrak objects", substring = true).assertIsDisplayed()
     }
 }
