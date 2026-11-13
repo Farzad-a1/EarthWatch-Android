@@ -3,6 +3,7 @@ package com.EarthWatch.myapp
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import org.maplibre.android.MapLibre
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -31,6 +32,9 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.EarthWatch.myapp.core.maps.MapLibreMapPanel
+import com.EarthWatch.myapp.core.maps.MapLocation
+import java.util.Locale
 
 private val Ice = Color(0xFFF4F9FF)
 private val Blue = Color(0xFF0866E8)
@@ -53,6 +57,7 @@ private val sampleSatellites = listOf(
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        MapLibre.getInstance(this)
         window.statusBarColor = android.graphics.Color.rgb(244, 249, 255)
         window.navigationBarColor = android.graphics.Color.rgb(244, 249, 255)
         window.decorView.systemUiVisibility = android.view.View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR or android.view.View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
@@ -163,6 +168,13 @@ private fun TopBar(title: String, onBack: (() -> Unit)? = null, trailing: @Compo
 @Composable
 private fun ExploreScreen(nav: NavHostController) {
     var globe by remember { mutableStateOf(false) }
+    var location by remember { mutableStateOf(MapLocation("Tehran, Iran", 35.6892, 51.3890)) }
+    var showLocationDialog by remember { mutableStateOf(false) }
+    var mapLoading by remember { mutableStateOf(true) }
+    var mapError by remember { mutableStateOf<String?>(null) }
+    var retryKey by remember { mutableIntStateOf(0) }
+    var recenterKey by remember { mutableIntStateOf(0) }
+    var showLayersInfo by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxSize()) {
         TopBar("EarthWatch", trailing = { IconButton(onClick = { nav.navigate("settings") }) { Icon(Icons.Default.Menu, "Settings", tint = Navy) }; IconButton(onClick = {}) { Icon(Icons.Default.NotificationsNone, "Notifications", tint = Navy) } })
         Row(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth().clip(CircleShape).background(PaleBlue).padding(4.dp)) {
@@ -172,15 +184,62 @@ private fun ExploreScreen(nav: NavHostController) {
             }
         }
         Box(Modifier.fillMaxSize().padding(horizontal = 8.dp, vertical = 8.dp).clip(RoundedCornerShape(22.dp))) {
-            WorldMapArt(Modifier.fillMaxSize())
-            Row(Modifier.align(Alignment.TopStart).padding(12.dp).clip(CircleShape).background(Color.White.copy(alpha = .93f)).clickable { }.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Default.LocationOn, null, tint = Blue, modifier = Modifier.size(18.dp)); Text("Tehran, Iran", color = Navy, fontSize = 12.sp, fontWeight = FontWeight.SemiBold) }
+            MapLibreMapPanel(
+                location = location,
+                retryKey = retryKey,
+                recenterKey = recenterKey,
+                onMapTap = { latitude, longitude -> location = MapLocation("Selected location", latitude, longitude) },
+                onStatus = { loading, error -> mapLoading = loading; mapError = error },
+                modifier = Modifier.fillMaxSize(),
+            )
+            Row(Modifier.align(Alignment.TopStart).padding(12.dp).clip(CircleShape).background(Color.White.copy(alpha = .95f)).clickable { showLocationDialog = true }.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Default.LocationOn, null, tint = Blue, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(5.dp)); Text(location.name, color = Navy, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1); Spacer(Modifier.width(8.dp)); Text(String.format(Locale.US, "%.2f, %.2f", location.latitude, location.longitude), color = Muted, fontSize = 10.sp, maxLines = 1) }
             Column(Modifier.align(Alignment.BottomEnd).padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Surface(shape = CircleShape, color = Color.White, shadowElevation = 4.dp) { IconButton(onClick = {}) { Icon(Icons.Default.Layers, "Map layers", tint = Navy) } }
-                Surface(shape = CircleShape, color = Color.White, shadowElevation = 4.dp) { IconButton(onClick = {}) { Icon(Icons.Default.MyLocation, "Center map", tint = Blue) } }
+                Surface(shape = CircleShape, color = Color.White, shadowElevation = 4.dp) { IconButton(onClick = { showLayersInfo = true }) { Icon(Icons.Default.Layers, "Map layers", tint = Navy) } }
+                Surface(shape = CircleShape, color = Color.White, shadowElevation = 4.dp) { IconButton(onClick = { recenterKey++ }) { Icon(Icons.Default.MyLocation, "Center map", tint = Blue) } }
             }
-            Surface(Modifier.align(Alignment.BottomStart).padding(12.dp), shape = RoundedCornerShape(10.dp), color = Color.White.copy(alpha = .92f)) { Text("Map preview · connect a tile source in Milestone 2", Modifier.padding(10.dp), fontSize = 10.sp, color = Muted) }
+            Surface(Modifier.align(Alignment.BottomStart).padding(start = 12.dp, bottom = 56.dp), shape = RoundedCornerShape(10.dp), color = Color.White.copy(alpha = .94f)) { Text("OpenFreeMap · © OpenMapTiles · Data from OpenStreetMap", Modifier.padding(horizontal = 10.dp, vertical = 7.dp), fontSize = 10.sp, color = Muted) }
+            if (mapLoading) Card(Modifier.align(Alignment.Center), shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = .95f))) { Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) { CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp); Spacer(Modifier.width(10.dp)); Text("Loading map…", fontSize = 13.sp, color = Navy) } }
+            mapError?.let { message ->
+                Card(Modifier.align(Alignment.Center).padding(20.dp), shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) {
+                    Column(Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) { Icon(Icons.Default.CloudOff, null, tint = Blue); Text("Map unavailable", color = Navy, fontWeight = FontWeight.Bold); Text(message.take(120), color = Muted, fontSize = 11.sp, textAlign = TextAlign.Center); TextButton(onClick = { retryKey++; mapError = null; mapLoading = true }) { Text("Retry") } }
+                }
+            }
         }
     }
+    if (showLocationDialog) CoordinateEntryDialog(location, onDismiss = { showLocationDialog = false }) { updated -> location = updated; showLocationDialog = false }
+    if (showLayersInfo) AlertDialog(onDismissRequest = { showLayersInfo = false }, title = { Text("Map layers") }, text = { Text("The interactive base map is ready. Satellite positions and orbital tracks will appear when real orbit data is added in Milestone 3.") }, confirmButton = { TextButton(onClick = { showLayersInfo = false }) { Text("OK") } })
+}
+
+@Composable
+private fun CoordinateEntryDialog(current: MapLocation, onDismiss: () -> Unit, onSave: (MapLocation) -> Unit) {
+    var name by remember(current) { mutableStateOf(current.name) }
+    var coordinates by remember(current) { mutableStateOf("${current.latitude}, ${current.longitude}") }
+    var error by remember { mutableStateOf<String?>(null) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Choose a map location") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(name, { name = it }, label = { Text("Location name") }, singleLine = true)
+                OutlinedTextField(coordinates, { coordinates = it; error = null }, label = { Text("Latitude, longitude") }, singleLine = true, placeholder = { Text("35.6892, 51.3890") })
+                Text("Coordinate entry works without GPS or a geocoder.", color = Muted, fontSize = 11.sp)
+                error?.let { Text(it, color = Color(0xFFB42318), fontSize = 12.sp) }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                val parts = coordinates.split(',', ' ', '\n').map(String::trim).filter(String::isNotEmpty)
+                val latitude = parts.getOrNull(0)?.toDoubleOrNull()
+                val longitude = parts.getOrNull(1)?.toDoubleOrNull()
+                if (latitude == null || longitude == null || latitude !in -90.0..90.0 || longitude !in -180.0..180.0) {
+                    error = "Enter latitude (−90 to 90) and longitude (−180 to 180)."
+                } else {
+                    onSave(MapLocation(name.ifBlank { "Selected location" }, latitude, longitude))
+                }
+            }) { Text("Use location") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }
 
 @Composable

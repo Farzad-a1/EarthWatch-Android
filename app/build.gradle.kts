@@ -15,6 +15,9 @@ android {
         versionName = "0.1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        val mapStyleUrl = providers.gradleProperty("earthwatchMapStyleUrl")
+            .orElse("https://tiles.openfreemap.org/styles/liberty")
+        buildConfigField("String", "EARTHWATCH_MAP_STYLE_URL", "\"${mapStyleUrl.get()}\"")
     }
 
     buildTypes {
@@ -29,7 +32,10 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    buildFeatures { compose = true }
+    buildFeatures {
+        compose = true
+        buildConfig = true
+    }
 }
 
 dependencies {
@@ -46,6 +52,7 @@ dependencies {
     implementation("androidx.navigation:navigation-compose:2.9.6")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.9.4")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.9.4")
+    implementation("org.maplibre.gl:android-sdk:13.7.1")
 
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.3.0")

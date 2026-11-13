@@ -2,11 +2,17 @@
 
 Native Kotlin and Jetpack Compose application for satellite tracking and Earth observation.
 
-## Milestone 1 status
+## Implemented milestones
 
-The first visual foundation is implemented with the requested application ID, a light blue and white design system, welcome flow, five-tab navigation, map preview, catalog cards, pass preview, imagery placeholder, saved-location interactions, settings, satellite details, and a planned-globe state.
+### Milestone 1: Visual foundation
 
-Screens that do not yet have a data provider are explicitly labeled as previews. Sample catalog and pass rows are UI fixtures; they are not live tracking or predictions. The map illustration is not a navigable map and the imagery illustration is not a real acquisition.
+The application uses the requested ID `com.EarthWatch.myapp`, a light blue and white design system, welcome flow, five-tab navigation, catalog cards, pass preview, imagery placeholder, saved-location interactions, settings, satellite details, and a planned-globe state.
+
+### Milestone 2: Interactive map
+
+Explore now uses MapLibre with the public OpenFreeMap Liberty style. Users can pan and zoom, tap the map to move the selected coordinate, enter a location name and latitude/longitude, and recenter the map. The style URL can be overridden with `-PearthwatchMapStyleUrl=https://your-provider/style.json`. The map displays attribution for OpenFreeMap, OpenMapTiles, and OpenStreetMap and shows loading, retryable error, and timeout states.
+
+Screens that do not yet have a data provider are labeled as previews. Satellite and pass rows remain UI fixtures; they are not live tracking or predictions. Satellite positions and orbital tracks are planned for Milestone 3. The imagery panel is not a real acquisition.
 
 ## Build
 
@@ -16,10 +22,8 @@ Open this directory in Android Studio and sync the Gradle project. It uses Andro
 .\gradlew.bat assembleDebug
 ```
 
-## Planned milestones
+## Remaining milestones
 
-1. Visual foundation and navigation (current)
-2. Configurable MapLibre 2D map and coordinate entry
 3. CelesTrak catalog, orbital-element caching, and SGP4 propagation
 4. Geometric pass predictions, time-zone handling, and opt-in notifications
 5. Public imagery provider and persistent saved locations
@@ -27,7 +31,7 @@ Open this directory in Android Studio and sync the Gradle project. It uses Andro
 
 ## Privacy and services
 
-The current milestone has no network calls, analytics, ads, account registration, or location permissions. Future integrations will be documented here with provider attribution, terms, quotas, and required permissions. No private credentials will be placed in the APK.
+The map requests public style, font, and vector-tile resources from OpenFreeMap. No analytics, ads, account registration, or location permissions are used. The map does not read device location; the initial Tehran coordinate and any changes are supplied by the user. Future integrations will be documented here with provider attribution, terms, quotas, and required permissions. No private credentials will be placed in the APK.
 
 ## License
 
