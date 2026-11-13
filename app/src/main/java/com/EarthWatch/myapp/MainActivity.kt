@@ -108,7 +108,7 @@ private fun EarthWatchApp() {
                         }
                     }
                 }
-                composable("settings") { MainShell(nav, "settings", showBottom = false) { SettingsScreen() } }
+                composable("settings") { MainShell(nav, "settings", showBottom = false) { SettingsScreen(nav) } }
                 composable("globe") { MainShell(nav, "explore", showBottom = false) { GlobeScreen(nav) } }
                 composable("detail/{norad}") { entry ->
                     val norad = entry.arguments?.getString("norad")?.toLongOrNull()
@@ -524,18 +524,40 @@ private fun SavedScreen(state: com.EarthWatch.myapp.feature.saved.SavedLocations
 }
 
 @Composable
-private fun SettingsScreen() {
+private fun SettingsScreen(nav: NavHostController) {
+    var dialogTitle by remember { mutableStateOf<String?>(null) }
+    var dialogText by remember { mutableStateOf("") }
     Column(Modifier.fillMaxSize()) {
         TopBar("Settings", onBack = null)
-        Column(Modifier.padding(horizontal = 14.dp).clip(RoundedCornerShape(18.dp)).background(Color.White).border(1.dp, BorderBlue, RoundedCornerShape(18.dp)).padding(horizontal = 14.dp)) {
-            SettingRow(Icons.Default.DarkMode, "Appearance", "Light mode · default")
-            SettingRow(Icons.Default.Notifications, "Notifications", "Manage pass alerts on the Passes tab")
-            SettingRow(Icons.Default.Straighten, "Units", "Kilometers, UTC")
-            SettingRow(Icons.Default.Map, "Map", "Map style, layers")
-            SettingRow(Icons.Default.Sync, "Data Update", "CelesTrak groups cached for two hours")
-            SettingRow(Icons.Default.Info, "About", "App info, licenses")
-            SettingRow(Icons.AutoMirrored.Filled.MenuBook, "Privacy & Licenses", "Sources and privacy")
+        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 14.dp).padding(bottom = 12.dp).clip(RoundedCornerShape(18.dp)).background(Color.White).border(1.dp, BorderBlue, RoundedCornerShape(18.dp)).padding(horizontal = 14.dp)) {
+            SettingRow(Icons.Default.DarkMode, "Appearance", "Light mode · default", action = {
+                dialogTitle = "Appearance"; dialogText = "EarthWatch currently uses the light blue and white theme. Dark mode is not available in this release."
+            })
+            SettingRow(Icons.Default.Notifications, "Notifications", "Manage pass alerts on the Passes tab", action = { nav.navigate("passes") { launchSingleTop = true } })
+            SettingRow(Icons.Default.Straighten, "Units", "Kilometers · device local time", action = {
+                dialogTitle = "Units"; dialogText = "Orbital distances are shown in kilometers. Pass dates and times use your device time zone."
+            })
+            SettingRow(Icons.Default.Map, "Map", "Map style, layers", action = {
+                dialogTitle = "Map"; dialogText = "The interactive map uses the OpenFreeMap Liberty style. Satellite positions and orbit tracks appear when current catalog data is available."
+            })
+            SettingRow(Icons.Default.Sync, "Data Update", "CelesTrak groups cached for two hours", action = {
+                dialogTitle = "Data Update"; dialogText = "Public CelesTrak orbital elements are refreshed no more often than every two hours and may be unavailable. Cached records are kept on this device."
+            })
+            SettingRow(Icons.Default.Info, "About", "EarthWatch · version 0.1.0", action = {
+                dialogTitle = "About EarthWatch"; dialogText = "EarthWatch is a local-first satellite tracking and Earth observation app. Predictions are estimates based on public orbital elements."
+            })
+            SettingRow(Icons.AutoMirrored.Filled.MenuBook, "Privacy & Licenses", "Data use and third-party services", action = {
+                dialogTitle = "Privacy & Licenses"; dialogText = "No account, analytics, advertising, or device location is used. Saved locations and orbit caches stay on this device. Network services: OpenFreeMap, OpenMapTiles, OpenStreetMap contributors, CelesTrak, and NASA GIBS. See the project README and privacy policy template for details."
+            })
         }
+    }
+    dialogTitle?.let { title ->
+        AlertDialog(
+            onDismissRequest = { dialogTitle = null },
+            title = { Text(title) },
+            text = { Text(dialogText) },
+            confirmButton = { TextButton(onClick = { dialogTitle = null }) { Text("OK") } },
+        )
     }
 }
 

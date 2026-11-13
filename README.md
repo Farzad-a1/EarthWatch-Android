@@ -6,7 +6,7 @@ Native Kotlin and Jetpack Compose application for satellite tracking and Earth o
 
 ### Milestone 1: Visual foundation
 
-The application uses the requested ID `com.EarthWatch.myapp`, a light blue and white design system, welcome flow, five-tab navigation, live catalog views, pass predictions, an imagery placeholder, saved-location interactions, settings, satellite details, and a planned-globe state.
+The application uses the requested ID `com.EarthWatch.myapp`, a light blue and white design system, welcome flow, five-tab navigation, live catalog views, pass predictions, NASA imagery, Room-backed saved locations, settings, satellite details, and a clearly marked planned-globe state.
 
 ### Milestone 2: Interactive map
 
@@ -42,7 +42,24 @@ Open this directory in Android Studio and sync the Gradle project. It uses Andro
 
 ## Remaining milestones
 
-6. Accessibility, broader automated tests, release preparation, and store assets
+### Milestone 6: Quality and release preparation
+
+The app has adaptive and legacy EarthWatch launcher icons, working privacy/service information in Settings, expanded Compose navigation/settings coverage, a privacy policy template, and a release checklist below. Release signing credentials are intentionally not stored in the project.
+
+## Privacy and permissions
+
+The app requests `INTERNET`, `ACCESS_NETWORK_STATE`, and `POST_NOTIFICATIONS`. Notification permission is requested only when a user enables pass alerts on Android 13 or newer. No location permission is requested. Saved locations and catalog caches are local. The [privacy policy template](PRIVACY_POLICY_TEMPLATE.md) must be reviewed, completed with publisher contact details, and published at a stable HTTPS URL before a store release. This project does not claim to be published or Play-ready without that publisher setup.
+
+## Release checklist
+
+- Verify current Google Play target API requirements before upload. As of November 2026 the Play requirement is API 36 or higher; this project targets API 37.
+- Review the manifest permissions and complete the Play Console Data safety form to match the release build and current third-party endpoints.
+- Publish the completed privacy policy and add its public URL in Play Console.
+- Generate a private upload key outside the repository, configure signing through local Gradle properties or CI secrets, and back up the key securely. No signing key is included here.
+- Run unit and connected instrumentation tests, then build the signed Android App Bundle with `bundleRelease`.
+- Verify the release bundle, icon, screenshots, listing copy, content rating, and third-party attribution in Play Console before submission.
+
+Play's current target API requirement is documented in [Google Play's target API policy](https://support.google.com/googleplay/android-developer/answer/11926878).
 
 ## Privacy and services
 

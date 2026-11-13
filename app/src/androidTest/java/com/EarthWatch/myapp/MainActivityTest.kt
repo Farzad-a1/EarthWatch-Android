@@ -32,4 +32,14 @@ class MainActivityTest {
         compose.onNodeWithText("Saved").performClick()
         compose.onNodeWithContentDescription("Add location").assertIsDisplayed()
     }
+
+    @Test
+    fun settingsExplainsPrivacyAndThirdPartyServices() {
+        compose.onNodeWithText("Get Started").performClick()
+        compose.onNodeWithContentDescription("Settings").performClick()
+        compose.onNodeWithText("Settings").assertIsDisplayed()
+        compose.onNodeWithText("Privacy & Licenses").performClick()
+        compose.onNodeWithText("No account, analytics, advertising, or device location is used.", substring = true).assertIsDisplayed()
+        compose.onNodeWithText("NASA GIBS", substring = true).assertIsDisplayed()
+    }
 }
