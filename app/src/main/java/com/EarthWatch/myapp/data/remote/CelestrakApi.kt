@@ -3,6 +3,7 @@ package com.EarthWatch.myapp.data.remote
 import com.EarthWatch.myapp.domain.model.SatelliteOrbit
 import com.google.gson.annotations.SerializedName
 import okhttp3.OkHttpClient
+import java.util.concurrent.TimeUnit
 import retrofit2.Response
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
@@ -75,6 +76,10 @@ fun createCelestrakApi(): CelestrakApi {
         .retryOnConnectionFailure(false)
         .followRedirects(false)
         .followSslRedirects(false)
+        .connectTimeout(8, TimeUnit.SECONDS)
+        .readTimeout(10, TimeUnit.SECONDS)
+        .writeTimeout(8, TimeUnit.SECONDS)
+        .callTimeout(12, TimeUnit.SECONDS)
         .build()
     return Retrofit.Builder()
         .baseUrl("https://celestrak.org/NORAD/elements/")

@@ -12,12 +12,17 @@ data class CachedOrbitGroup(
     val fetchedAtMillis: Long,
 )
 
-class SatelliteOrbitCache(context: Context) {
+interface SatelliteOrbitGroupCache {
+    fun read(group: String): CachedOrbitGroup?
+    fun write(group: String, records: List<CelestrakOmmDto>, fetchedAtMillis: Long)
+}
+
+class SatelliteOrbitCache(context: Context) : SatelliteOrbitGroupCache {
     private val cacheDao = EarthWatchDatabase.getInstance(context).satelliteCacheDao()
     private val legacyPreferences = context.applicationContext.getSharedPreferences("orbit_catalog_cache", Context.MODE_PRIVATE)
     private val gson = Gson()
 
-    fun read(group: String): CachedOrbitGroup? {
+    override fun read(group: String): CachedOrbitGroup? {
         val type = object : TypeToken<List<CelestrakOmmDto>>() {}.type
         val cached = cacheDao.get(group) ?: run {
             val legacyGroup = when (group) {
@@ -36,7 +41,7 @@ class SatelliteOrbitCache(context: Context) {
         return CachedOrbitGroup(records, cached.fetchedAtMillis)
     }
 
-    fun write(group: String, records: List<CelestrakOmmDto>, fetchedAtMillis: Long) {
+    override fun write(group: String, records: List<CelestrakOmmDto>, fetchedAtMillis: Long) {
         cacheDao.put(SatelliteCacheEntity(group, gson.toJson(records), fetchedAtMillis))
     }
 }
