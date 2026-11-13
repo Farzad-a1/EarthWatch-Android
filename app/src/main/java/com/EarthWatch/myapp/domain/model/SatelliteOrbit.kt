@@ -31,3 +31,18 @@ data class GroundTrack(
     val noradId: Long,
     val points: List<Pair<Double, Double>>,
 )
+
+data class ObservingLocation(
+    val name: String,
+    val latitudeDeg: Double,
+    val longitudeDeg: Double,
+)
+
+data class SatellitePass(
+    val satelliteId: Long,
+    val satelliteName: String,
+    val aos: java.time.Instant,
+    val los: java.time.Instant,
+    val maximumElevationDeg: Double,
+    val azimuthAtMaximumDeg: Double,
+)

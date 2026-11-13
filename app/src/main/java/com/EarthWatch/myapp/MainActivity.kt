@@ -1,8 +1,13 @@
 package com.EarthWatch.myapp
 
 import android.os.Bundle
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import org.maplibre.android.MapLibre
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
@@ -29,6 +34,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.*
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.core.content.ContextCompat
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -41,7 +47,10 @@ import com.EarthWatch.myapp.domain.model.GroundTrack
 import com.EarthWatch.myapp.domain.model.SatelliteOrbit
 import com.EarthWatch.myapp.feature.satellites.SatelliteUiState
 import com.EarthWatch.myapp.feature.satellites.SatelliteViewModel
+import com.EarthWatch.myapp.feature.passes.PassUiState
+import com.EarthWatch.myapp.feature.passes.PassViewModel
 import java.time.Instant
+import java.time.Duration
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -77,7 +86,12 @@ private fun EarthWatchApp() {
                 composable("welcome") { WelcomeScreen { nav.navigate("explore") { popUpTo("welcome") { inclusive = true } } } }
                 composable("explore") { MainShell(nav, "explore") { ExploreScreen(nav, satelliteState.orbits, satelliteState.positions, satelliteState.tracks, satelliteState.fetchedAtMillis) } }
                 composable("satellites") { MainShell(nav, "satellites") { SatellitesScreen(nav, satelliteState, satelliteViewModel::refreshCatalog) } }
-                composable("passes") { MainShell(nav, "passes") { PassesScreen() } }
+                composable("passes") {
+                    val passViewModel: PassViewModel = viewModel()
+                    val passState by passViewModel.state.collectAsStateWithLifecycle()
+                    LaunchedEffect(satelliteState.orbits) { passViewModel.updateCatalog(satelliteState.orbits) }
+                    MainShell(nav, "passes") { PassesScreen(passState, passViewModel, satelliteState.fetchedAtMillis) }
+                }
                 composable("imagery") { MainShell(nav, "imagery") { ImageryScreen() } }
                 composable("saved") { MainShell(nav, "saved") { SavedScreen() } }
                 composable("settings") { MainShell(nav, "settings", showBottom = false) { SettingsScreen() } }
@@ -323,22 +337,77 @@ private fun SatelliteCard(sat: SatelliteOrbit, position: GroundPosition?, onClic
 }
 
 @Composable
-private fun PassesScreen() {
+private fun PassesScreen(state: PassUiState, viewModel: PassViewModel, fetchedAtMillis: Long?) {
+    var showLocationDialog by remember { mutableStateOf(false) }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val permissionRequest = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { allowed ->
+        viewModel.setAlertsEnabled(allowed)
+    }
     Column(Modifier.fillMaxSize()) {
-        TopBar("Pass Predictions", onBack = null)
+        TopBar("Pass Predictions")
         Card(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 8.dp), shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = PaleBlue), border = BorderStroke(1.dp, BorderBlue)) {
-            Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Default.LocationOn, null, tint = Blue); Spacer(Modifier.width(10.dp)); Column(Modifier.weight(1f)) { Text("Tehran, Iran", fontWeight = FontWeight.Bold); Text("35.6892° N, 51.3890° E", fontSize = 12.sp, color = Muted) }; IconButton(onClick = {}) { Icon(Icons.Default.Settings, "Choose location", tint = Navy) } }
-        }
-        Text("Upcoming Passes", Modifier.padding(start = 16.dp, top = 12.dp, bottom = 8.dp), color = Navy, fontSize = 17.sp, fontWeight = FontWeight.Bold)
-        Column(Modifier.padding(horizontal = 14.dp).clip(RoundedCornerShape(18.dp)).background(Color.White).border(1.dp, BorderBlue, RoundedCornerShape(18.dp)).padding(horizontal = 14.dp)) {
-            listOf(Triple("Sentinel-2A", "Today, 20:49 – 20:52", "82°"), Triple("Landsat 9", "Today, 21:57 – 22:00", "68°"), Triple("Sentinel-1A", "Tomorrow, 09:14 – 09:17", "71°")).forEachIndexed { index, pass ->
-                Row(Modifier.fillMaxWidth().padding(vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Default.Event, null, tint = Navy); Spacer(Modifier.width(14.dp)); Column(Modifier.weight(1f)) { Text(pass.first, fontWeight = FontWeight.Bold); Text(pass.second, fontSize = 12.sp, color = Navy); Text("△ ${pass.third} · preview only", fontSize = 11.sp, color = Muted) }; Text(if (index == 2) "Tomorrow" else "In ${18 + index * 24} min", color = Orange, fontSize = 11.sp, fontWeight = FontWeight.SemiBold) }
-                if (index < 2) HorizontalDivider(color = BorderBlue)
+            Row(Modifier.padding(start = 14.dp, end = 6.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.LocationOn, null, tint = Blue)
+                Spacer(Modifier.width(10.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(state.location.name, fontWeight = FontWeight.Bold)
+                    Text(formatLocation(state.location.latitudeDeg, state.location.longitudeDeg), fontSize = 12.sp, color = Muted)
+                }
+                IconButton(onClick = { showLocationDialog = true }) { Icon(Icons.Default.Settings, "Choose observer location", tint = Navy) }
             }
         }
-        Spacer(Modifier.height(12.dp)); InfoBanner("Pass predictions will use fresh orbital elements in Milestone 4.")
+        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("Next 24 hours · elevation above 10°", Modifier.weight(1f), color = Navy, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+            TextButton(onClick = {
+                if (state.alertsEnabled) viewModel.setAlertsEnabled(false)
+                else if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) permissionRequest.launch(Manifest.permission.POST_NOTIFICATIONS)
+                else viewModel.setAlertsEnabled(true)
+            }) {
+                Icon(if (state.alertsEnabled) Icons.Default.NotificationsActive else Icons.Default.NotificationsNone, null, tint = if (state.alertsEnabled) Blue else Muted)
+                Spacer(Modifier.width(4.dp)); Text(if (state.alertsEnabled) "Alerts on" else "Alert me")
+            }
+        }
+        InfoBanner("Passes use SGP4 elements ${fetchedAtMillis?.let { "retrieved ${formatFetchedAt(it)}" } ?: "when available"} and your device time zone. Reminders are scheduled about 15 minutes before a pass; Android may delay background notifications.")
+        if (state.isCalculating) {
+            Row(Modifier.fillMaxWidth().padding(18.dp), verticalAlignment = Alignment.CenterVertically) { CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp); Spacer(Modifier.width(10.dp)); Text("Calculating visible passes…", color = Muted) }
+        } else if (!state.catalogAvailable) {
+            InfoBanner("Pass times will appear after the CelesTrak orbit catalog is available.")
+        } else if (state.passes.isEmpty()) {
+            InfoBanner("No satellites are predicted above 10° from this location in the next 24 hours.")
+        } else {
+            LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(state.passes, key = { "${it.satelliteId}-${it.aos.epochSecond}" }) { pass ->
+                    Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = Color.White), border = BorderStroke(1.dp, BorderBlue)) {
+                        Row(Modifier.padding(horizontal = 13.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Event, null, tint = Navy)
+                            Spacer(Modifier.width(12.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(pass.satelliteName, fontWeight = FontWeight.Bold, color = Navy)
+                                Text("${formatPassTime(pass.aos)} – ${formatPassTime(pass.los)}", fontSize = 12.sp, color = Navy)
+                                Text("Peak ${"%.0f".format(Locale.US, pass.maximumElevationDeg)}° · Az ${"%.0f".format(Locale.US, pass.azimuthAtMaximumDeg)}°", fontSize = 11.sp, color = Muted)
+                            }
+                            Text("${Duration.between(Instant.now(), pass.aos).toMinutes().coerceAtLeast(0)} min", color = Orange, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+                }
+            }
+        }
+        state.errorMessage?.let { InfoBanner("Could not calculate passes: $it") }
+    }
+    if (showLocationDialog) {
+        val mapLocation = MapLocation(state.location.name, state.location.latitudeDeg, state.location.longitudeDeg)
+        CoordinateEntryDialog(mapLocation, onDismiss = { showLocationDialog = false }) { updated ->
+            viewModel.updateLocation(com.EarthWatch.myapp.domain.model.ObservingLocation(updated.name, updated.latitude, updated.longitude))
+            showLocationDialog = false
+        }
     }
 }
+
+private fun formatPassTime(instant: Instant): String = DateTimeFormatter.ofPattern("EEE d MMM · HH:mm z", Locale.getDefault())
+    .withZone(ZoneId.systemDefault()).format(instant)
+
+private fun formatLocation(latitude: Double, longitude: Double): String =
+    "${"%.4f".format(Locale.US, kotlin.math.abs(latitude))}° ${if (latitude >= 0) "N" else "S"}, ${"%.4f".format(Locale.US, kotlin.math.abs(longitude))}° ${if (longitude >= 0) "E" else "W"}"
 
 @Composable
 private fun ImageryScreen() {
@@ -390,10 +459,10 @@ private fun SettingsScreen() {
         TopBar("Settings", onBack = null)
         Column(Modifier.padding(horizontal = 14.dp).clip(RoundedCornerShape(18.dp)).background(Color.White).border(1.dp, BorderBlue, RoundedCornerShape(18.dp)).padding(horizontal = 14.dp)) {
             SettingRow(Icons.Default.DarkMode, "Appearance", "Light mode · default")
-            SettingRow(Icons.Default.Notifications, "Notifications", "Pass alerts · off")
+            SettingRow(Icons.Default.Notifications, "Notifications", "Manage pass alerts on the Passes tab")
             SettingRow(Icons.Default.Straighten, "Units", "Kilometers, UTC")
             SettingRow(Icons.Default.Map, "Map", "Map style, layers")
-            SettingRow(Icons.Default.Sync, "Data Update", "Catalog connection pending")
+            SettingRow(Icons.Default.Sync, "Data Update", "CelesTrak groups cached for two hours")
             SettingRow(Icons.Default.Info, "About", "App info, licenses")
             SettingRow(Icons.AutoMirrored.Filled.MenuBook, "Privacy & Licenses", "Sources and privacy")
         }

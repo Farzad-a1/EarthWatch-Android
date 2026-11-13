@@ -23,5 +23,8 @@ class MainActivityTest {
         compose.onNodeWithText("Weather").assertIsDisplayed()
         compose.onNodeWithText("Comm.").assertIsDisplayed()
         compose.onNodeWithText("CelesTrak objects", substring = true).assertIsDisplayed()
+        compose.onNodeWithText("Passes").performClick()
+        compose.onNodeWithText("Alert me").assertIsDisplayed()
+        compose.onNodeWithText("elevation above 10°", substring = true).assertIsDisplayed()
     }
 }

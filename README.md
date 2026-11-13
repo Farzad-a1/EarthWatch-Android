@@ -6,7 +6,7 @@ Native Kotlin and Jetpack Compose application for satellite tracking and Earth o
 
 ### Milestone 1: Visual foundation
 
-The application uses the requested ID `com.EarthWatch.myapp`, a light blue and white design system, welcome flow, five-tab navigation, catalog cards, pass preview, imagery placeholder, saved-location interactions, settings, satellite details, and a planned-globe state.
+The application uses the requested ID `com.EarthWatch.myapp`, a light blue and white design system, welcome flow, five-tab navigation, live catalog views, pass predictions, an imagery placeholder, saved-location interactions, settings, satellite details, and a planned-globe state.
 
 ### Milestone 2: Interactive map
 
@@ -20,7 +20,13 @@ Orbit propagation uses Orekit's SGP4 implementation with CelesTrak OMM fields. P
 
 The catalog uses OMM rather than legacy five-digit TLE strings so identifiers above 99,999 remain supported. Groups are fetched no more than once every two hours, in line with [CelesTrak's GP data documentation](https://celestrak.org/NORAD/documentation/gp-data-formats.php) and [usage policy](https://celestrak.org/usage-policy.php). Orbit elements are a public source, and they do not provide precision navigation; displayed positions are propagated estimates.
 
-Pass times are still preview-only and must not be treated as predictions. Imagery is an illustrative placeholder, not an acquisition. Saved locations are currently in-memory and are not retained across restarts.
+Imagery is an illustrative placeholder, not an acquisition. Saved locations are currently in-memory and are not retained across restarts.
+
+### Milestone 4: Pass predictions and reminders
+
+The Passes tab calculates upcoming AOS/LOS windows from current SGP4 elements for the selected coordinates, applying a 10° minimum elevation and searching the next 24 hours. The date and time display uses the device time zone; observer coordinates are stored on-device. Users can opt into Android notifications scheduled about 15 minutes before a predicted pass.
+
+WorkManager reminders are persistent and respect Android power management, but their delivery time is best-effort and can be delayed. Notifications require the Android 13+ runtime permission. Predictions depend on the age and quality of public GP elements and are approximate visibility windows.
 
 ## Build
 
@@ -32,7 +38,6 @@ Open this directory in Android Studio and sync the Gradle project. It uses Andro
 
 ## Remaining milestones
 
-4. Geometric pass predictions, time-zone handling, and opt-in notifications
 5. Public imagery provider and Room-persisted saved locations
 6. Accessibility, broader automated tests, release preparation, and store assets
 

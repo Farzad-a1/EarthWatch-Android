@@ -16,25 +16,66 @@ import kotlin.math.hypot
 import kotlin.math.sin
 import kotlin.math.sqrt
 
+data class TopocentricPosition(val azimuthDeg: Double, val elevationDeg: Double, val rangeKm: Double)
+
 class Sgp4OrbitPropagator {
-    fun positionAt(orbit: SatelliteOrbit, instant: Instant): GroundPosition =
-        groundPosition(orbit, temePositionAt(orbit, instant), instant)
+    fun prepare(orbit: SatelliteOrbit): PreparedOrbit = PreparedOrbit(orbit, createPropagator(orbit))
+
+    fun positionAt(orbit: SatelliteOrbit, instant: Instant): GroundPosition = prepare(orbit).positionAt(instant)
 
     /** SGP4 TEME position in kilometers, useful for frame-aware calculations and reference tests. */
-    fun temePositionAt(orbit: SatelliteOrbit, instant: Instant): Vector3D = stateAt(orbit, instant)
+    fun temePositionAt(orbit: SatelliteOrbit, instant: Instant): Vector3D = prepare(orbit).temePositionAt(instant)
 
     fun groundTrack(orbit: SatelliteOrbit, instant: Instant, samples: Int = 25): GroundTrack {
         val periodSeconds = 86_400.0 / orbit.meanMotionRevPerDay
         val start = instant.minusMillis((periodSeconds * 500.0).toLong())
+        val trajectory = prepare(orbit)
         val points = (0 until samples).map { index ->
             val sampleTime = start.plusMillis((periodSeconds * 1000.0 * index / (samples - 1).coerceAtLeast(1)).toLong())
-            val position = groundPosition(orbit, stateAt(orbit, sampleTime), sampleTime)
+            val position = trajectory.positionAt(sampleTime)
             position.latitudeDeg to position.longitudeDeg
         }
         return GroundTrack(orbit.noradId, points)
     }
 
-    private fun stateAt(orbit: SatelliteOrbit, instant: Instant): Vector3D {
+    inner class PreparedOrbit internal constructor(
+        private val orbit: SatelliteOrbit,
+        private val propagator: TLEPropagator,
+    ) {
+        fun temePositionAt(instant: Instant): Vector3D {
+            val date = AbsoluteDate(Date.from(instant), TimeScalesFactory.getTAI())
+            return propagator.propagate(date).position.scalarMultiply(1.0e-3)
+        }
+
+        fun positionAt(instant: Instant): GroundPosition = groundPosition(orbit, temePositionAt(instant), instant)
+
+        fun topocentricAt(latitudeDeg: Double, longitudeDeg: Double, instant: Instant): TopocentricPosition {
+            val ecef = temeToEcef(temePositionAt(instant), instant)
+            val latitude = Math.toRadians(latitudeDeg)
+            val longitude = Math.toRadians(longitudeDeg)
+            val sinLat = sin(latitude)
+            val cosLat = cos(latitude)
+            val sinLon = sin(longitude)
+            val cosLon = cos(longitude)
+            val normalRadius = WGS84_A / sqrt(1.0 - WGS84_E2 * sinLat * sinLat)
+            val siteX = normalRadius * cosLat * cosLon
+            val siteY = normalRadius * cosLat * sinLon
+            val siteZ = normalRadius * (1.0 - WGS84_E2) * sinLat
+            val dx = ecef.x - siteX
+            val dy = ecef.y - siteY
+            val dz = ecef.z - siteZ
+            val east = -sinLon * dx + cosLon * dy
+            val north = -sinLat * cosLon * dx - sinLat * sinLon * dy + cosLat * dz
+            val up = cosLat * cosLon * dx + cosLat * sinLon * dy + sinLat * dz
+            return TopocentricPosition(
+                azimuthDeg = ((Math.toDegrees(atan2(east, north)) % 360.0) + 360.0) % 360.0,
+                elevationDeg = Math.toDegrees(atan2(up, hypot(east, north))),
+                rangeKm = sqrt(dx * dx + dy * dy + dz * dz),
+            )
+        }
+    }
+
+    private fun createPropagator(orbit: SatelliteOrbit): TLEPropagator {
         // OMM epochs and app Instants are UTC/POSIX timestamps. Treat both uniformly as TAI
         // coordinates so elapsed seconds match the UTC catalog convention without external
         // Orekit UTC history resources; SGP4 uses the resulting elapsed duration only here.
@@ -61,12 +102,21 @@ class Sgp4OrbitPropagator {
             orbit.bstar,
             timeScale,
         )
-        val date = AbsoluteDate(Date.from(instant), timeScale)
-        // Orekit's Cartesian state uses SI units; downstream geodetic math uses kilometers.
-        return TLEPropagator.selectExtrapolator(tle).propagate(date).position.scalarMultiply(1.0e-3)
+        return TLEPropagator.selectExtrapolator(tle)
     }
 
     private fun groundPosition(orbit: SatelliteOrbit, teme: Vector3D, instant: Instant): GroundPosition {
+        val ecef = temeToEcef(teme, instant)
+        val x = ecef.x
+        val y = ecef.y
+        val z = ecef.z
+        val longitude = normalizeLongitude(Math.toDegrees(atan2(y, x)))
+        val latitude = geodeticLatitude(Math.toDegrees(atan2(z, hypot(x, y))), hypot(x, y), z)
+        val altitude = altitudeKm(latitude, hypot(x, y), z)
+        return GroundPosition(orbit.noradId, orbit.name, latitude, longitude, altitude)
+    }
+
+    private fun temeToEcef(teme: Vector3D, instant: Instant): Vector3D {
         val julianDate = 2_440_587.5 + (instant.toEpochMilli() / 86_400_000.0)
         val gmst = greenwichSiderealAngle(julianDate)
         val cosTheta = cos(gmst)
@@ -74,10 +124,7 @@ class Sgp4OrbitPropagator {
         val x = cosTheta * teme.x + sinTheta * teme.y
         val y = -sinTheta * teme.x + cosTheta * teme.y
         val z = teme.z
-        val longitude = normalizeLongitude(Math.toDegrees(atan2(y, x)))
-        val latitude = geodeticLatitude(Math.toDegrees(atan2(z, hypot(x, y))), hypot(x, y), z)
-        val altitude = altitudeKm(latitude, hypot(x, y), z)
-        return GroundPosition(orbit.noradId, orbit.name, latitude, longitude, altitude)
+        return Vector3D(x, y, z)
     }
 
     private fun greenwichSiderealAngle(julianDate: Double): Double {
